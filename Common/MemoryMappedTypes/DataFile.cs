@@ -24,7 +24,9 @@ public readonly ref struct MapFeatureData
     public GeometryType Type { get; init; }
     public ReadOnlySpan<char> Label { get; init; }
     public ReadOnlySpan<Coordinate> Coordinates { get; init; }
-    public Dictionary<string, string> Properties { get; init; }
+    // public Dictionary<string, string> Properties { get; init; }
+    public EnvironmentTypes Environment {get; init; }
+    public String? Name {get; init; }
 }
 
 /// <summary>
@@ -85,6 +87,157 @@ public unsafe class DataFile : IDisposable
             }
 
             _disposedValue = true;
+        }
+    }
+
+     public static bool ShouldBeBorder(Dictionary<String, String> properties)
+    {
+        // https://wiki.openstreetmap.org/wiki/Key:admin_level
+        var foundBoundary = false;
+        var foundLevel = false;
+        foreach (var entry in properties)
+        {
+            if (entry.Key.StartsWith("boundary") && entry.Value.StartsWith("administrative"))
+            {
+                foundBoundary = true;
+            }
+            if (entry.Key.StartsWith("admin_level") && entry.Value == "2")
+            {
+                foundLevel = true;
+            }
+            if (foundBoundary && foundLevel)
+            {
+                break;
+            }
+        }
+
+        return foundBoundary && foundLevel;
+    }
+
+    public static bool ShouldBePopulatedPlace(GeometryType type, Dictionary<String, String> properties)
+    {
+        // https://wiki.openstreetmap.org/wiki/Key:place
+        if (type != GeometryType.Point)
+        {
+            return false;
+        }
+        foreach (var entry in properties)
+            if (entry.Key.StartsWith("place"))
+            {
+                if (entry.Value.StartsWith("city") || entry.Value.StartsWith("town") ||
+                    entry.Value.StartsWith("locality") || entry.Value.StartsWith("hamlet"))
+                {
+                    return true;
+                }
+            }
+        return false;
+    }
+
+    public static EnvironmentTypes GetEnvironmentType(Dictionary<String, String> properties, GeometryType type) {
+
+        if (properties.Any(p => p.Key == "highway" && (p.Value == "motorway" || p.Value == "trunk")))
+        {
+            return EnvironmentTypes.Highway;
+        }
+        else if (properties.Any(p => p.Key == "highway" && MapFeature.HighwayTypes.Any(v => p.Value.StartsWith(v))))
+        {
+            return EnvironmentTypes.Road;
+        }
+        else if (properties.Any(p => p.Key.StartsWith("water")) && type != GeometryType.Point)
+        {
+            return EnvironmentTypes.Water;
+        }
+        else if (ShouldBeBorder(properties))
+        {
+            return EnvironmentTypes.Border;
+        }
+        else if (ShouldBePopulatedPlace(type, properties))
+        {
+            return EnvironmentTypes.PopulatedPlace;
+        }
+        else if (properties.Any(p => p.Key.StartsWith("railway")))
+        {
+            return EnvironmentTypes.Railway;
+        }
+        else if (properties.Any(p => p.Key.StartsWith("natural") && type == GeometryType.Polygon))
+        {
+            var naturalKey = properties.FirstOrDefault(x => x.Key == "natural").Value;
+            if (naturalKey != null)
+            {
+                if (naturalKey == "fell" ||
+                    naturalKey == "grassland" ||
+                    naturalKey == "heath" ||
+                    naturalKey == "moor" ||
+                    naturalKey == "scrub" ||
+                    naturalKey == "wetland")
+                {
+                    return EnvironmentTypes.Plain;
+                }
+                else if (naturalKey == "wood" ||
+                        naturalKey == "tree_row")
+                {
+                    return EnvironmentTypes.Forest;
+                }
+                else if (naturalKey == "bare_rock" ||
+                        naturalKey == "rock" ||
+                        naturalKey == "scree")
+                {
+                    return EnvironmentTypes.Mountains;
+                }
+                else if (naturalKey == "beach" ||
+                        naturalKey == "sand")
+                {
+                    return EnvironmentTypes.Desert;
+                }
+                else if (naturalKey == "water")
+                {
+                    return EnvironmentTypes.Lakes;
+                }else {
+                    return EnvironmentTypes.Unknown;
+                }
+            }else{
+                return EnvironmentTypes.Unknown;
+            }
+        }
+        else if (properties.Any(p => p.Key.StartsWith("boundary") && p.Value.StartsWith("forest")))
+        {
+            return EnvironmentTypes.Forest;
+        }
+        else if (properties.Any(p => p.Key.StartsWith("landuse") && (p.Value.StartsWith("forest") || p.Value.StartsWith("orchard"))))
+        {
+            return EnvironmentTypes.Forest;
+        }
+        else if (type == GeometryType.Polygon && properties.Any(p
+                     => p.Key.StartsWith("landuse") && (p.Value.StartsWith("residential") || p.Value.StartsWith("cemetery") || p.Value.StartsWith("industrial") || p.Value.StartsWith("commercial") ||
+                                                        p.Value.StartsWith("square") || p.Value.StartsWith("construction") || p.Value.StartsWith("military") || p.Value.StartsWith("quarry") ||
+                                                        p.Value.StartsWith("brownfield"))))
+        {
+            return EnvironmentTypes.Civilian;
+        }
+        else if (type == GeometryType.Polygon && properties.Any(p
+                     => p.Key.StartsWith("landuse") && (p.Value.StartsWith("farm") || p.Value.StartsWith("meadow") || p.Value.StartsWith("grass") || p.Value.StartsWith("greenfield") ||
+                                                        p.Value.StartsWith("recreation_ground") || p.Value.StartsWith("winter_sports") || p.Value.StartsWith("allotments"))))
+        {
+            return EnvironmentTypes.Plain;
+        }
+        else if (type == GeometryType.Polygon &&
+                 properties.Any(p => p.Key.StartsWith("landuse") && (p.Value.StartsWith("reservoir") || p.Value.StartsWith("basin"))))
+        {
+            return EnvironmentTypes.Lakes;
+        }
+        else if (type == GeometryType.Polygon && properties.Any(p => p.Key.StartsWith("building")))
+        {
+            return EnvironmentTypes.Buildings;
+        }
+        else if (type == GeometryType.Polygon && properties.Any(p => p.Key.StartsWith("leisure")))
+        {
+            return EnvironmentTypes.NationalPark;
+        }
+        else if (type == GeometryType.Polygon && properties.Any(p => p.Key.StartsWith("amenity")))
+        {
+            return EnvironmentTypes.Buildings;
+        }else{
+            return EnvironmentTypes.Unknown;
         }
     }
 
@@ -194,7 +347,8 @@ public unsafe class DataFile : IDisposable
                             Label = label,
                             Coordinates = coordinates,
                             Type = feature->GeometryType,
-                            Properties = properties
+                            Environment = GetEnvironmentType(properties, feature->GeometryType),
+                            Name = properties.GetValueOrDefault("name"),
                         }))
                     {
                         break;

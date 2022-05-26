@@ -106,6 +106,25 @@ public enum GeometryType : byte
     Point
 }
 
+public enum EnvironmentTypes : byte
+{
+    Highway,
+    Road,
+    Water,
+    Border,
+    PopulatedPlace,
+    Railway,
+    Forest,
+    Civilian,
+    Plain,
+    Lakes,
+    Buildings,
+    Mountains,
+    Desert,
+    NationalPark,
+    Unknown
+}
+
 [StructLayout(LayoutKind.Explicit, Pack = 1)]
 public struct PropertyEntryList
 {

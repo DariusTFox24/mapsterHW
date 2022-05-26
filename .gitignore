@@ -9,6 +9,7 @@
 *.user
 *.userosscache
 *.sln.docstates
+andorra-latest.osm.pbf
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
